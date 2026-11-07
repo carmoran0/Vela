@@ -925,6 +925,17 @@
     <!-- A bike-share leg, spoken: the station the bike is taken from, then the one it goes back to. -->
     <string name="transit_nav_bike_take">Take a bike at %1$s.</string>
     <string name="transit_nav_bike_return">Return it at %1$s.</string>
+    <string name="transit_bike_no_bikes">No bikes left at %1$s.</string> <!-- format -->
+    <string name="transit_bike_no_docks">No free docks at %1$s.</string> <!-- format -->
+    <string name="transit_bike_keep">Keep</string>
+    <plurals name="transit_bike_few_bikes">
+        <item quantity="one">Only %1$d bike left at %2$s.</item>
+        <item quantity="other">Only %1$d bikes left at %2$s.</item>
+    </plurals>
+    <plurals name="transit_bike_few_docks">
+        <item quantity="one">Only %1$d free dock at %2$s.</item>
+        <item quantity="other">Only %1$d free docks at %2$s.</item>
+    </plurals>
     <string name="transit_nav_next">Next</string>
     <string name="welcome_trips_title">Your drives</string>
     <string name="welcome_trips_intro">Kept on this phone so you can replay a drive or attach one to a bug report. Nothing leaves the phone unless you share it.</string>

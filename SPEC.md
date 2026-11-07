@@ -5224,9 +5224,27 @@ is on screen (`nonTransitRouteUp` in `MapSurface`): orange and red lines read as
   (`transit_nav_bike_take`, `transit_nav_bike_return`) and advances at the return station like a
   ride at its stop. Its length opens to cycling steps from the bike router
   (`RouteActions.bikeDirections`, `TravelMode.BICYCLE`), as a walk leg's open to the walk
-  router's. The counts are the ones fetched with the trip; they are not asked again on the way.
-  The guidance notification (`publishTransitNotice`) carries the same two lines and raises no
-  "next stop" heads-up for the return station.
+  router's. The guidance notification (`publishTransitNotice`) carries the same two lines and
+  raises no "next stop" heads-up for the return station.
+- On the way, `BikeShareTripWatch` checks the station in hand: the pickup while the guidance is
+  on the walk just before a bike leg (`watchOf`), the return while it is on the bike leg. A ride
+  before that walk watches nothing. It asks once as the leg starts and then every 60 s
+  (`BikeShareStations.REFRESH_MS`), with the screen off too, since the guidance runs as a
+  foreground service the rider started. Nothing is asked with "Use less data" or offline. Each
+  check is `bikeStationsInBox` with `providerGroups` set to the leg's group, over the box around
+  the rider and the pickup, or around the return, padded by 800 m (`ALT_RADIUS_M`); the station
+  is found by `Transitous.stationFor` and its counts go to `BikeShareCounts`, so the leg rows show
+  them. A return whose feed gives no dock count is asked for once and then left: with no dock
+  count there is no return alert.
+- A station with no bike to take (or not renting), or no free dock (or not returning), raises an
+  `OUT` alert: a card in the guidance sheet, said once by the voice, and a heads-up on the
+  guidance notification keyed `bike:<leg>:<station>:<end>:<level>`. Two or fewer
+  (`BikeShareCounts.FEW`) raise a `FEW` alert, a line in amber in the sheet with no voice and no
+  heads-up. The alert lives in the holder `BikeShareWatch`, read by `TransitNavSheet`. A failed
+  request or a station missing from the reply leaves the alert as it was; a station back above
+  the threshold drops it. Keep drops an alert for good; a low count that then runs out raises a
+  new one. `adb shell setprop debug.vela.tune.bikeShareFake <n>` makes the watched station read
+  as n bikes and n docks, for testing without a ride (`AppTune.local`, adb only).
 - MOTIS takes a bike only from a station that is renting and has one of the asked type, and
   returns it only to a station that is returning and has a free dock for that type, or a free-dock
   total where the station declares a capacity (`src/gbfs/osr_mapping.cc`). Where a feed gives no

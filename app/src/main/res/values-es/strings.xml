@@ -475,6 +475,17 @@
     <string name="transit_nav_get_off">Bájate en %1$s</string>
     <string name="transit_nav_bike_take">Toma una bici en %1$s.</string>
     <string name="transit_nav_bike_return">Devuélvela en %1$s.</string>
+    <string name="transit_bike_no_bikes">No quedan bicis en %1$s.</string>
+    <string name="transit_bike_no_docks">No quedan anclajes libres en %1$s.</string>
+    <string name="transit_bike_keep">Mantener</string>
+    <plurals name="transit_bike_few_bikes">
+        <item quantity="one">Solo queda %1$d bici en %2$s.</item>
+        <item quantity="other">Solo quedan %1$d bicis en %2$s.</item>
+    </plurals>
+    <plurals name="transit_bike_few_docks">
+        <item quantity="one">Solo queda %1$d anclaje libre en %2$s.</item>
+        <item quantity="other">Solo quedan %1$d anclajes libres en %2$s.</item>
+    </plurals>
     <!-- format -->
     <string name="transit_nav_next">Siguiente</string>
     <string name="place_last_available">Último disponible</string>

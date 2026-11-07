@@ -567,6 +567,18 @@ class MapViewModel @Inject constructor(
     private val bikeShare = BikeShareStations(appContext, viewModelScope, _state, http)
     // Bike-share trips beside the bike routes while the Bike tab's chip is on (SPEC 8).
     private val bikeShareTrips = BikeShareTripSearch(http)
+    // A guided bike-share trip's pickup and return, checked on the way (SPEC 8). Above init.
+    private val bikeShareWatch = BikeShareTripWatch(
+        scope = viewModelScope,
+        nav = _state.map { it.transitNav },
+        http = http,
+        hereOf = { _state.value.myLocation },
+        canAsk = { !app.vela.core.data.LowDataMode.enabled && !_state.value.offline },
+        onChange = { a ->
+            BikeShareWatch.alert.value = a
+            if (_state.value.transitNav != null) publishTransitNotice(_state.value.myLocation)
+        },
+    )
     private var bikeShareJob: Job? = null
     /** The last directions' ends and whether it had stops, for [researchBikeShare]. */
     private var bikeShareEnds: Triple<LatLng, LatLng, Boolean>? = null
@@ -853,6 +865,8 @@ class MapViewModel @Inject constructor(
         ukFuel.bind()
         pruneOldTrips() // saved drives past their days, when that setting is on
         bikeShare.bind()
+        bikeShareWatch.bind()
+        BikeShareWatch.onKeep = { bikeShareWatch.dismiss() }
         // Turning the transit lines on (or off) acts at once, not at the next pan.
         viewModelScope.launch {
             androidx.compose.runtime.snapshotFlow { app.vela.ui.TransitLayer.on.value }.collect {
@@ -7294,7 +7308,7 @@ class MapViewModel @Inject constructor(
         startLocation()
         itin.steps.firstOrNull()?.let { voice.speak(transitStepSpoken(it), interrupt = true) }
         // The notification that carries the trip with the phone in a pocket (issue #880).
-        transitAlertedLeg = -1
+        transitAlertedKey = null
         app.vela.service.TransitGuide.onEnd = { endTransitNav() }
         publishTransitNotice(_state.value.myLocation)
         app.vela.service.TransitGuide.start(appContext)
@@ -7324,11 +7338,14 @@ class MapViewModel @Inject constructor(
 
     fun endTransitNav() {
         _state.update { it.copy(transitNav = null) }
+        BikeShareWatch.alert.value = null
+        BikeShareCounts.replace(emptyMap())
         app.vela.service.TransitGuide.end(appContext)
     }
 
-    /** The leg [transitAlertedLeg] said "get off at the next stop" for, -1 for none yet. */
-    private var transitAlertedLeg = -1
+    /** The alert key last spoken: "get off at the next stop" once per leg, a bike-share station's
+     *  alert once per station and level. Null for none yet. */
+    private var transitAlertedKey: String? = null
 
     /**
      * The transit guidance notification for the leg in hand at [here] (issue #880): a ride shows
@@ -7346,7 +7363,7 @@ class MapViewModel @Inject constructor(
         val step = tn.step ?: return
         // A bike-share leg names its two stations, like its spoken line; a return station is not
         // a stop to be told about one stop ahead.
-        val notice = if (step.mode == app.vela.core.model.TransitMode.BIKE_SHARE) {
+        val leg = if (step.mode == app.vela.core.model.TransitMode.BIKE_SHARE) {
             app.vela.service.TransitGuide.Notice(
                 title = step.boardStop?.name?.let { appContext.getString(R.string.transit_nav_bike_take, it) }.orEmpty(),
                 text = step.alightStop?.name?.let { appContext.getString(R.string.transit_nav_bike_return, it) }.orEmpty(),
@@ -7372,10 +7389,14 @@ class MapViewModel @Inject constructor(
                     ?: appContext.getString(R.string.transit_notice_to_destination),
             )
         }
+        // A bike-share station that ran out on the way pops up and is said once (SPEC 8, Bike
+        // share in directions). A low count stays in the sheet.
+        val bike = BikeShareWatch.alert.value?.takeIf { it.level == BikeLevel.OUT }
+        val notice = if (bike == null) leg else leg.copy(alert = BikeShareWatch.headline(appContext, bike), alertKey = bike.key)
         app.vela.service.TransitGuide.notice.value = notice
-        if (notice.alert != null && transitAlertedLeg != tn.stepIndex) {
-            transitAlertedLeg = tn.stepIndex
-            voice.speak(notice.alert, interrupt = false)
+        if (notice.alert != null && notice.alertKey != transitAlertedKey) {
+            transitAlertedKey = notice.alertKey
+            voice.speak(if (bike != null) BikeShareWatch.spoken(appContext, bike) else notice.alert, interrupt = false)
         }
     }
 

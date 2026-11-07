@@ -324,8 +324,17 @@ a start the system refuses leaves guidance working in the app, as before.
 
 A bike-share leg is spoken by its two stations, where to take a bike and where to return it, and
 advances at the return station. Its length opens to cycling steps from the bike router, the way a
-walk leg opens to walking steps. Its counts are the ones fetched with the trip and are not asked
-again on the way. Its notification names the same two stations, with no "next stop" heads-up.
+walk leg opens to walking steps. Its notification names the same two stations, with no "next
+stop" heads-up.
+
+On the way, `BikeShareTripWatch` asks again for the station in hand: the pickup's free bikes on
+the walk to it, the return's free docks on the ride, once as the leg starts and then every
+minute, with the screen off too. It asks for that one system's stations in a box padded by
+800 m, so central Paris costs well under 10 KB a check. Nothing is asked with "Use less data" or
+offline, and a return whose feed has no dock count is asked once and left alone. At none, or a
+station out of service, the guidance sheet shows a card, the voice says it once and the
+notification pops a heads-up. At two or fewer the sheet shows a line in amber and nothing is
+said. Keep puts an alert away for good.
 
 ### Offline copies
 

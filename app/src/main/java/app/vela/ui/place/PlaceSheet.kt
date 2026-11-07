@@ -2489,6 +2489,12 @@ fun TransitNavSheet(
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(SheetPalette.row(dark)).padding(14.dp),
                 ) { TransitStepRow(step, ink, dim, onWalkDirections) }
+                // A watched bike-share station that ran out or is running low (SPEC 8, Bike share
+                // in directions), from the holder: MapScreen passes nothing new.
+                app.vela.ui.map.BikeShareWatch.alert.value?.let { a ->
+                    Spacer(Modifier.height(8.dp))
+                    BikeShareAlertCard(a, ink, dim, dark)
+                }
             } else {
                 Text(itin.arrivalText?.let { stringResource(R.string.place_arrive_approx, it) } ?: "", style = MaterialTheme.typography.bodyLarge, color = ink)
             }
@@ -3347,6 +3353,42 @@ internal fun BikeShareTripsChip() {
         shape = androidx.compose.foundation.shape.CircleShape,
         modifier = Modifier.dpadHighlight(androidx.compose.foundation.shape.CircleShape),
     )
+}
+
+/** A guided bike-share station's alert: at none a card in red with Keep, at a few a line in amber. */
+@Composable
+private fun BikeShareAlertCard(a: app.vela.ui.map.BikeShareAlert, ink: Color, dim: Color, dark: Boolean) {
+    val context = LocalContext.current
+    val out = a.level == app.vela.ui.map.BikeLevel.OUT
+    val tint = if (out) SheetPalette.TrafficRed else SheetPalette.TrafficAmber
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(SheetPalette.row(dark)).padding(horizontal = 14.dp, vertical = 10.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(Sym.DirectionsBike, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                app.vela.ui.map.BikeShareWatch.headline(context, a),
+                style = MaterialTheme.typography.bodyMedium,
+                fontWeight = if (out) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (out) ink else tint,
+                modifier = Modifier.weight(1f),
+            )
+            if (!out) {
+                TextButton(onClick = { app.vela.ui.map.BikeShareWatch.onKeep?.invoke() }, modifier = Modifier.dpadHighlight(CircleShape)) {
+                    Text(stringResource(R.string.transit_bike_keep))
+                }
+            }
+        }
+        if (out) {
+            FilledTonalButton(
+                onClick = { app.vela.ui.map.BikeShareWatch.onKeep?.invoke() },
+                shape = CircleShape,
+                modifier = Modifier.dpadHighlight(CircleShape),
+            ) { Text(stringResource(R.string.transit_bike_keep)) }
+        }
+    }
 }
 
 /** A count's color on a bike-share trip: red at none, amber at [app.vela.ui.map.BikeShareCounts.FEW] or fewer. */

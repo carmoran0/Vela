@@ -733,12 +733,11 @@ Found reading everything since 0.4.1912 and not fixed yet.
   still cancel their request for each new view, so while the map follows a moving fix a reply
   slower than the second between views never lands. They can ask through `ViewFetch` as the
   stop icons and bike-share stations do.
-- Bike share in directions, the stations on the way. Bike-share trips are on the Bike tab
-  with their stations' counts and guidance on the ride (SPEC 8, Bike share in directions), and
-  the counts are the ones fetched with the trip. Still to do: a check of both stations on the
-  way that offers the nearest other one when the pickup runs out of bikes or the return fills. Most feeds on the
-  public instance give no dock counts (none for Lyon, Paris, Bordeaux, Berlin, Montreal or
-  Brussels on 2026-11-04), so the return check works only where one does. Not started.
+- Bike share in directions, another station on the way. Guidance checks the pickup and the
+  return every minute and says when one runs out (SPEC 8, Bike share in directions). Still to
+  do: offer the nearest other station and rewrite the trip when the rider takes it. Most feeds
+  on the public instance give no dock counts (none for Lyon, Paris, Bordeaux, Berlin, Montreal
+  or Brussels on 2026-11-04), so the return check works only where one does.
 - Bike share on a trip with stops. Such a trip gets no bike-share trip today, only a line saying
   so: the planner's `via` takes up to two transit stop ids and no coordinate. One plan per stretch
   (start to the first stop, then on from each stop at the time the last stretch arrives), joined
