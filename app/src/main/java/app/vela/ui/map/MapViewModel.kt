@@ -575,7 +575,10 @@ class MapViewModel @Inject constructor(
         hereOf = { _state.value.myLocation },
         canAsk = { !app.vela.core.data.LowDataMode.enabled && !_state.value.offline },
         onChange = { a ->
+            val was = BikeShareWatch.alert.value
             BikeShareWatch.alert.value = a
+            // Only a station that ran out pops a heads-up; it goes with its alert.
+            if (was?.level == BikeLevel.OUT && a?.key != was.key) app.vela.service.TransitGuide.clearAlert(appContext)
             if (_state.value.transitNav != null) publishTransitNotice(_state.value.myLocation)
         },
         routeOf = { a, b, mode -> runCatching { dataSource.directions(a, b, mode).firstOrNull() }.getOrNull() },
@@ -7347,6 +7350,7 @@ class MapViewModel @Inject constructor(
         if (tn.itinerary !== offer.base || tn.arrived) return
         transitLegArmed = false
         BikeShareWatch.alert.value = null
+        app.vela.service.TransitGuide.clearAlert(appContext)
         _state.update { it.copy(transitNav = TransitNavState(offer.itinerary, offer.stepIndex)) }
         offer.itinerary.steps.getOrNull(offer.stepIndex)?.let { voice.speak(transitStepSpoken(it), interrupt = true) }
         publishTransitNotice(_state.value.myLocation)

@@ -334,7 +334,8 @@ minute, with the screen off too. It asks for that one system's stations in a box
 offline, and a return whose feed has no dock count is asked once and left alone. At none, or a
 station out of service, the guidance sheet shows a card, the voice says it once and the
 notification pops a heads-up. At two or fewer the sheet shows a line in amber and nothing is
-said. Keep puts an alert away for good.
+said. An alert on screen takes each minute's counts; when its other station runs out too, it
+offers another. Keep puts an alert away for good, and the heads-up goes with it.
 
 The alert names another station of the same system within 800 m that still has bikes or docks,
 the nearest with more than two first, and Switch, in the sheet or on the notification, rewrites

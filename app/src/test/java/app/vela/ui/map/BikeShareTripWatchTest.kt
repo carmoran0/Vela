@@ -1,6 +1,7 @@
 package app.vela.ui.map
 
 import app.vela.core.data.transit.Transitous
+import app.vela.core.model.BikeShareStatus
 import app.vela.core.model.LatLng
 import app.vela.core.model.Route
 import app.vela.core.model.TransitItinerary
@@ -10,7 +11,10 @@ import app.vela.core.model.TransitRental
 import app.vela.core.model.TransitStep
 import app.vela.core.model.TransitStopTime
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import okhttp3.OkHttpClient
 import org.junit.Assert.assertEquals
@@ -50,6 +54,7 @@ class BikeShareTripWatchTest {
         var groups: List<String>? = null
         var replans = 0
         var routes = 0
+        val counts = HashMap<String, BikeShareStatus>()
     }
 
     private val near = LatLng(38.5590, -121.7510) // about 140 m from Covell Park
@@ -60,7 +65,7 @@ class BikeShareTripWatchTest {
 
     private fun watch(
         seen: Seen, stations: () -> List<Transitous.BikeStation>?, canAsk: Boolean = true, fake: Int? = null,
-        here: LatLng? = start, replan: List<TransitItinerary> = emptyList(),
+        here: LatLng? = start, replan: List<TransitItinerary> = emptyList(), onReplan: suspend () -> Unit = {},
     ) =
         BikeShareTripWatch(
             scope = CoroutineScope(EmptyCoroutineContext),
@@ -70,9 +75,9 @@ class BikeShareTripWatchTest {
             canAsk = { canAsk },
             onChange = { seen.alerts += it },
             routeOf = { a, b, _ -> seen.routes++; route(listOf(a, b), 600.0) },
-            replanOf = { _, _, _ -> seen.replans++; replan },
+            replanOf = { _, _, _ -> seen.replans++; onReplan(); replan },
             durText = durText,
-            onCounts = {},
+            onCounts = { seen.counts += it },
             stationsOf = { _, g -> seen.asks++; seen.groups = g; stations() },
             fake = { fake },
             clock = { 0L },
@@ -350,5 +355,60 @@ class BikeShareTripWatchTest {
         assertEquals(0, seen.replans)
         assertEquals(start, w.alert?.offer?.itinerary?.steps?.get(0)?.walkFrom)
         assertTrue(w.alert!!.altDistanceM!! < 200.0)
+    }
+
+    @Test fun `a check cancelled on the way shows nothing`() = runBlocking {
+        val seen = Seen()
+        val w = watch(
+            seen, { listOf(station("1", "Covell Park", covell, 0, 4), station("2", "Close", near, 6, 4)) },
+            onReplan = { currentCoroutineContext().cancel() },
+        )
+        launch { w.check(BikeShareTripWatch.watchOf(TransitNavState(trip, 0))!!) }.join()
+        assertEquals(1, seen.replans)
+        assertTrue(seen.alerts.isEmpty())
+        assertNull(w.alert)
+    }
+
+    @Test fun `an alert that holds takes the new counts and keeps its offer`() = runBlocking {
+        val seen = Seen()
+        var bikes = 2
+        var alt = 6
+        val w = watch(seen, { listOf(station("1", "Covell Park", covell, bikes, 4), station("2", "Close", near, alt, 4)) })
+        val pickup = BikeShareTripWatch.watchOf(TransitNavState(trip, 0))!!
+        w.check(pickup)
+        val first = w.alert!!
+        assertEquals("test-bikes/2", first.altKey)
+        bikes = 1
+        alt = 5
+        w.check(pickup)
+        assertEquals(1, w.alert?.count)
+        assertEquals(5, w.alert?.altCount)
+        assertTrue(w.alert?.offer === first.offer)
+        assertEquals(2, seen.routes)
+        assertEquals(5, seen.counts[BikeShareCounts.keyOf("test-bikes", "Close")]?.bikes)
+        assertEquals(1, seen.counts[BikeShareCounts.keyOf("test-bikes", "Covell Park")]?.bikes)
+    }
+
+    @Test fun `an alert whose other station runs out offers another`() = runBlocking {
+        val seen = Seen()
+        var reply = listOf(station("1", "Covell Park", covell, 2, 4), station("2", "Close", near, 6, 4))
+        val w = watch(seen, { reply })
+        val pickup = BikeShareTripWatch.watchOf(TransitNavState(trip, 0))!!
+        w.check(pickup)
+        assertEquals("Close", w.alert?.altName)
+        reply = listOf(station("1", "Covell Park", covell, 2, 4), station("2", "Close", near, 0, 4), station("3", "Further", LatLng(38.5600, -121.7480), 7, 4))
+        w.check(pickup)
+        assertEquals("Further", w.alert?.altName)
+        assertEquals("Further", w.alert?.offer?.itinerary?.steps?.get(1)?.boardStop?.name)
+        assertEquals(4, seen.routes)
+    }
+
+    @Test fun `the watch's counts go beside the trip's others`() {
+        val s = BikeShareStatus(bikes = 4, docks = 3, renting = true, returning = true, atMs = 0L)
+        BikeShareCounts.replace(mapOf(BikeShareCounts.keyOf("test-bikes", "Downtown") to s))
+        BikeShareCounts.put(mapOf(BikeShareCounts.keyOf("test-bikes", "Covell Park") to s.copy(bikes = 0)))
+        assertEquals(s, BikeShareCounts.of(rental, TransitStopTime("Downtown")))
+        assertEquals(0, BikeShareCounts.of(rental, TransitStopTime("Covell Park"))?.bikes)
+        BikeShareCounts.replace(emptyMap())
     }
 }

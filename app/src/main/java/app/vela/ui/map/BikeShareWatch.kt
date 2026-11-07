@@ -20,7 +20,8 @@ data class BikeShareOffer(val itinerary: TransitItinerary, val stepIndex: Int, v
  * A watched station that ran out or is running low during transit guidance (SPEC 8, Bike share
  * in directions). [count] is its free bikes or docks, 0 when it is out of service. The other
  * station, when one was found, is [altName] at [altDistanceM] with [altCount] bikes or docks
- * (null when the count is not known). [offer] is null when no other trip could be built.
+ * (null when the count is not known), and [altKey] its `rentals` key when the reply had it.
+ * [offer] is null when no other trip could be built.
  */
 data class BikeShareAlert(
     val key: String,
@@ -29,6 +30,7 @@ data class BikeShareAlert(
     val station: String,
     val count: Int,
     val altName: String? = null,
+    val altKey: String? = null,
     val altDistanceM: Double? = null,
     val altCount: Int? = null,
     val offer: BikeShareOffer? = null,
@@ -57,7 +59,10 @@ object BikeShareWatch {
     fun altLine(c: Context, a: BikeShareAlert): String? {
         val name = a.altName
         val d = a.altDistanceM
-        if (name == null || d == null) return if (a.level == BikeLevel.OUT) c.getString(R.string.transit_bike_no_alt) else null
+        if (name == null || d == null) {
+            if (a.level != BikeLevel.OUT) return null
+            return c.getString(if (a.end == BikeEnd.PICKUP) R.string.transit_bike_no_alt_bikes else R.string.transit_bike_no_alt_docks)
+        }
         val n = a.altCount ?: return c.getString(R.string.transit_bike_alt_plain, name, formatDistance(d))
         val count = c.resources.getQuantityString(
             if (a.end == BikeEnd.PICKUP) R.plurals.place_bike_share_bikes else R.plurals.place_bike_share_docks, n, n,
@@ -70,5 +75,8 @@ object BikeShareWatch {
 
     /** What the voice says once: the first line and where there are some. */
     fun spoken(c: Context, a: BikeShareAlert): String =
-        listOfNotNull(headline(c, a), a.altName?.let { c.getString(R.string.transit_bike_spoken_alt, it) }).joinToString(" ")
+        listOfNotNull(
+            headline(c, a),
+            a.altName?.let { c.getString(if (a.end == BikeEnd.PICKUP) R.string.transit_bike_spoken_alt_bikes else R.string.transit_bike_spoken_alt_docks, it) },
+        ).joinToString(" ")
 }

@@ -16,7 +16,9 @@ import app.vela.core.model.distanceTo
 import app.vela.ui.AppTune
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -34,8 +36,9 @@ import okhttp3.OkHttpClient
  *
  * A station at none, or out of service, raises a [BikeLevel.OUT] alert; one at
  * [BikeShareCounts.FEW] or fewer a [BikeLevel.FEW] one. A failed request or a station missing from
- * the reply changes nothing. Keep ([dismiss]) drops an alert for good; a low count that then runs
- * out raises a new one.
+ * the reply changes nothing. An alert that holds takes each check's counts and keeps its offer,
+ * unless its other station has run out. Keep ([dismiss]) drops an alert for good; a low count
+ * that then runs out raises a new one.
  *
  * An alert offers the nearest other station ([alternative]) and the trip through it. An empty
  * pickup is planned again from the rider first ([acceptReplan]): the planner skips empty stations
@@ -55,8 +58,9 @@ internal class BikeShareTripWatch(
     private val onChange: (BikeShareAlert?) -> Unit,
     /** The first route between two points by that mode; null on any failure. */
     private val routeOf: suspend (LatLng, LatLng, TravelMode) -> Route?,
-    /** The fresh counts of the watched station, keyed for [BikeShareCounts]. */
-    private val onCounts: (Map<String, BikeShareStatus>) -> Unit = BikeShareCounts::replace,
+    /** The fresh counts of the watched station or its other one, keyed for [BikeShareCounts],
+     *  beside the counts the trip already has. */
+    private val onCounts: (Map<String, BikeShareStatus>) -> Unit = BikeShareCounts::put,
     /** The stations of those systems in a box `[south, west, north, east]`; null on any failure. */
     private val stationsOf: suspend (DoubleArray, List<String>) -> List<Transitous.BikeStation>? = { b, g ->
         withContext(Dispatchers.IO) { Transitous.bikeStationsInBox(http, b[0], b[1], b[2], b[3], g) }
@@ -137,12 +141,24 @@ internal class BikeShareTripWatch(
             show(null)
             return true
         }
-        if (alert?.key == key) return true
-        val a = alertFor(w, BikeShareAlert(key, w.end, level, w.stop.name, countOf(w.end, st)), st, at, stations, here)
-        Log.i(TAG, "bike share watch: ${w.end} other station ${if (a.altName != null) "found" else "none"}, offer ${if (a.offer != null) "ready" else "none"}")
-        stations.firstOrNull { it.name == a.altName && it.key.startsWith("${w.rental.providerId}/") }?.let { alt ->
-            onCounts(counts + (BikeShareCounts.keyOf(w.rental.providerId, alt.name) to BikeShareStations.statusOf(alt, now)))
+        val count = countOf(w.end, st)
+        // The alert on screen takes the new counts and keeps its offer, unless its other station
+        // has run out since: then a new offer is built.
+        val cur = alert?.takeIf { it.key == key }
+        val curAlt = cur?.altKey?.let { k -> stations.firstOrNull { it.key == k } }
+        val a = if (cur != null && (curAlt == null || (offered(w.end, curAlt) ?: 0) > 0)) {
+            cur.copy(count = count, altCount = curAlt?.let { offered(w.end, it) } ?: cur.altCount)
+        } else {
+            alertFor(w, BikeShareAlert(key, w.end, level, w.stop.name, count), st, at, stations, here).also {
+                Log.i(TAG, "bike share watch: ${w.end} other station ${if (it.altName != null) "found" else "none"}, offer ${if (it.offer != null) "ready" else "none"}")
+            }
         }
+        a.altKey?.let { k -> stations.firstOrNull { it.key == k } }?.let { alt ->
+            onCounts(mapOf(BikeShareCounts.keyOf(w.rental.providerId, alt.name) to BikeShareStations.statusOf(alt, now)))
+        }
+        // The requests above swallow a cancel: a guidance that has left this leg must not hear
+        // its alert.
+        currentCoroutineContext().ensureActive()
         show(a)
         return true
     }
@@ -163,7 +179,7 @@ internal class BikeShareTripWatch(
                 if (t != null && board != null && boardAt != null) {
                     val known = Transitous.stationFor(stations, w.rental.providerId, board.name, boardAt)
                     return base.copy(
-                        altName = board.name, altDistanceM = at.distanceTo(boardAt),
+                        altName = board.name, altKey = known?.key, altDistanceM = at.distanceTo(boardAt),
                         altCount = known?.let { offered(BikeEnd.PICKUP, it) },
                         offer = BikeShareOffer(t, 0, w.itinerary),
                     )
@@ -188,7 +204,7 @@ internal class BikeShareTripWatch(
             }
         }
         return base.copy(
-            altName = alt.name, altDistanceM = at.distanceTo(altAt), altCount = offered(w.end, alt),
+            altName = alt.name, altKey = alt.key, altDistanceM = at.distanceTo(altAt), altCount = offered(w.end, alt),
             offer = spliced?.let { BikeShareOffer(it, w.stepIndex, w.itinerary) },
         )
     }

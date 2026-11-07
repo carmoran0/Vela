@@ -53,6 +53,12 @@ object TransitGuide {
         runCatching { context.getSystemService(android.app.NotificationManager::class.java)?.cancel(TransitGuideService.ARRIVED_ID) }
     }
 
+    /** The heads-up of a bike-share alert that was switched, kept or dropped goes with it: its
+     *  Switch button would do nothing. */
+    fun clearAlert(context: Context) {
+        runCatching { context.getSystemService(android.app.NotificationManager::class.java)?.cancel(TransitGuideService.ALERT_ID) }
+    }
+
     /** Best effort, like the drive's service: transit guidance in the app does not depend on it. */
     fun start(context: Context) {
         runCatching { ContextCompat.startForegroundService(context, Intent(context, TransitGuideService::class.java)) }
@@ -200,7 +206,7 @@ class TransitGuideService : Service() {
         private const val ACTION_SWITCH = "app.vela.service.TRANSIT_BIKE_SWITCH"
         // Beside the drive's 42 and 43.
         private const val NOTIF_ID = 44
-        private const val ALERT_ID = 45
+        internal const val ALERT_ID = 45
         internal const val ARRIVED_ID = 46
         private const val ALERT_TIMEOUT_MS = 30_000L
     }

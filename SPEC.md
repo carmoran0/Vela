@@ -5226,36 +5226,40 @@ is on screen (`nonTransitRouteUp` in `MapSurface`): orange and red lines read as
   (`RouteActions.bikeDirections`, `TravelMode.BICYCLE`), as a walk leg's open to the walk
   router's. The guidance notification (`publishTransitNotice`) carries the same two lines and
   raises no "next stop" heads-up for the return station.
-- On the way, `BikeShareTripWatch` checks the station in hand: the pickup while the guidance is
-  on the walk just before a bike leg (`watchOf`), the return while it is on the bike leg. A ride
-  before that walk watches nothing. It asks once as the leg starts and then every 60 s
-  (`BikeShareStations.REFRESH_MS`), with the screen off too, since the guidance runs as a
-  foreground service the rider started. Nothing is asked with "Use less data" or offline. Each
-  check is `bikeStationsInBox` with `providerGroups` set to the leg's group, over the box around
-  the rider and the pickup, or around the return, padded by 800 m (`ALT_RADIUS_M`); the station
-  is found by `Transitous.stationFor` and its counts go to `BikeShareCounts`, so the leg rows show
-  them. A return whose feed gives no dock count is asked for once and then left: with no dock
-  count there is no return alert.
+- On the way, `BikeShareTripWatch` checks the station in hand: the pickup while the guidance is on
+  the walk just before a bike leg (`watchOf`), the return while it is on the bike leg. A ride before
+  that walk watches nothing. It asks once as the leg starts and then every 60 s
+  (`BikeShareStations.REFRESH_MS`), with the screen off too, since the guidance runs as a foreground
+  service the rider started. Nothing is asked with "Use less data" or offline. Each check is
+  `bikeStationsInBox` with `providerGroups` set to the leg's group, over the box around the rider
+  and the pickup, or around the return, padded by 800 m (`ALT_RADIUS_M`); the station is found by
+  `Transitous.stationFor` and its counts go to `BikeShareCounts` beside the trip's others (`put`),
+  so the leg rows show them. A return whose feed gives no dock count is asked for once and then
+  left: with no dock count there is no return alert.
 - A station with no bike to take (or not renting), or no free dock (or not returning), raises an
-  `OUT` alert: a card in the guidance sheet, said once by the voice, and a heads-up on the
-  guidance notification keyed `bike:<leg>:<station>:<end>:<level>`. Two or fewer
-  (`BikeShareCounts.FEW`) raise a `FEW` alert, a line in amber in the sheet with no voice and no
-  heads-up. The alert lives in the holder `BikeShareWatch`, read by `TransitNavSheet`. A failed
-  request or a station missing from the reply leaves the alert as it was; a station back above
-  the threshold drops it. Keep drops an alert for good; a low count that then runs out raises a
-  new one. `adb shell setprop debug.vela.tune.bikeShareFake <n>` makes the watched station read
-  as n bikes and n docks, for testing without a ride (`AppTune.local`, adb only).
+  `OUT` alert: a card in the guidance sheet, said once by the voice, and a heads-up on the guidance
+  notification keyed `bike:<leg>:<station>:<end>:<level>`. Two or fewer (`BikeShareCounts.FEW`)
+  raise a `FEW` alert, a line in amber in the sheet with no voice and no heads-up. The alert lives
+  in the holder `BikeShareWatch`, read by `TransitNavSheet`. A failed request or a station missing
+  from the reply leaves the alert as it was; a station back above the threshold drops it. An alert
+  that holds takes each check's counts and keeps its offer, unless its other station has run out
+  since; then a new offer is built. A check that guidance has left (another leg, a Switch, the end)
+  shows nothing, though its requests had already answered. Keep drops an alert for good; a low count
+  that then runs out raises a new one. `adb shell setprop debug.vela.tune.bikeShareFake <n>` makes
+  the watched station read as n bikes and n docks, for testing without a ride (`AppTune.local`, adb
+  only).
 - An alert offers another station (`alternative`): the same provider's, renting for a pickup,
-  returning with a dock count for a return, within 800 m of the watched station or, for a pickup,
-  of the rider. The nearest with more than two comes first (to the rider for a pickup, to the
-  full station for a return), else the nearest with any. The card names it with its distance
-  from the station it replaces and its count; with none it says no other station nearby has any.
-  The phone counts as the rider only within 3 km of the watched station (`RIDER_MAX_M`); a trip
-  planned from somewhere else uses the leg's own start, and its pickup is not planned again.
-  Switch, in
-  the sheet or on the notification (`TransitGuide.onSwitch`), gives guidance the offered trip and
-  says its leg; Keep leaves the trip as it is. An offer built for an itinerary guidance has left
-  does nothing.
+  returning with a dock count for a return, within 800 m of the watched station or, for a pickup, of
+  the rider. The nearest with more than two comes first (to the rider for a pickup, to the full
+  station for a return), else the nearest with any. The card names it with its distance from the
+  station it replaces and its count; with none it says no other station nearby has bikes, or free
+  docks. The phone
+  counts as the rider only within 3 km of the watched station (`RIDER_MAX_M`); a trip planned from
+  somewhere else uses the leg's own start, and its pickup is not planned again. Switch, in the sheet
+  or on the notification (`TransitGuide.onSwitch`), gives guidance the offered trip and says its
+  leg; Keep leaves the trip as it is. An offer built for an itinerary guidance has left does
+  nothing. The heads-up goes with its alert (`TransitGuide.clearAlert`), so a Switch on it never
+  lingers after the alert is switched, kept or dropped.
 - An empty pickup is planned again first: `planBikeShare` from the rider to the trip's end on the
   trip's groups, once per alert. The first trip whose first pickup is another station within
   reach (`acceptReplan`) is offered whole, from its first leg. The planner skips stations with no
