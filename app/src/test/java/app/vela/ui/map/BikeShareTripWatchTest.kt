@@ -2,6 +2,7 @@ package app.vela.ui.map
 
 import app.vela.core.data.transit.Transitous
 import app.vela.core.model.LatLng
+import app.vela.core.model.Route
 import app.vela.core.model.TransitItinerary
 import app.vela.core.model.TransitLine
 import app.vela.core.model.TransitMode
@@ -47,16 +48,30 @@ class BikeShareTripWatchTest {
         val alerts = ArrayList<BikeShareAlert?>()
         var asks = 0
         var groups: List<String>? = null
+        var replans = 0
+        var routes = 0
     }
 
-    private fun watch(seen: Seen, stations: () -> List<Transitous.BikeStation>?, canAsk: Boolean = true, fake: Int? = null) =
+    private val near = LatLng(38.5590, -121.7510) // about 140 m from Covell Park
+    private val far = LatLng(38.5700, -121.7521) // about 1.3 km from Covell Park
+    private val durText: (Long) -> String = { "${it / 60} min" }
+
+    private fun route(line: List<LatLng>, secs: Double) = Route(polyline = line, legs = emptyList(), distanceMeters = 0.0, durationSeconds = secs, durationInTrafficSeconds = null)
+
+    private fun watch(
+        seen: Seen, stations: () -> List<Transitous.BikeStation>?, canAsk: Boolean = true, fake: Int? = null,
+        here: LatLng? = start, replan: List<TransitItinerary> = emptyList(),
+    ) =
         BikeShareTripWatch(
             scope = CoroutineScope(EmptyCoroutineContext),
             nav = emptyFlow(),
             http = OkHttpClient(),
-            hereOf = { start },
+            hereOf = { here },
             canAsk = { canAsk },
             onChange = { seen.alerts += it },
+            routeOf = { a, b, _ -> seen.routes++; route(listOf(a, b), 600.0) },
+            replanOf = { _, _, _ -> seen.replans++; replan },
+            durText = durText,
             onCounts = {},
             stationsOf = { _, g -> seen.asks++; seen.groups = g; stations() },
             fake = { fake },
@@ -176,5 +191,164 @@ class BikeShareTripWatchTest {
         assertTrue(w.check(BikeShareTripWatch.watchOf(TransitNavState(trip, 1))!!))
         assertEquals(BikeLevel.OUT, w.alert?.level)
         assertEquals(BikeEnd.RETURN, w.alert?.end)
+    }
+
+    @Test fun `the other station is the nearest with more than a few, else the nearest with any`() {
+        val pickup = BikeShareTripWatch.watchOf(TransitNavState(trip, 0))!!
+        val stations = listOf(
+            station("1", "Covell Park", covell, 0, 4),
+            station("2", "Close", near, 1, 4),
+            station("3", "Further", LatLng(38.5600, -121.7480), 7, 4),
+            station("4", "Too far", far, 9, 4),
+            station("5", "Closed", near, 9, 4, renting = false),
+        )
+        assertEquals("Further", BikeShareTripWatch.alternative(stations, pickup, "test-bikes/1", covell, null)?.name)
+        assertEquals("Close", BikeShareTripWatch.alternative(stations.filter { it.name != "Further" }, pickup, "test-bikes/1", covell, null)?.name)
+        assertNull(BikeShareTripWatch.alternative(listOf(stations[0], stations[3], stations[4]), pickup, "test-bikes/1", covell, null))
+        val other = Transitous.BikeStation("other/9", "Other system", near.lat, near.lng, null, 9, 9, true, true)
+        assertNull(BikeShareTripWatch.alternative(listOf(other), pickup, "test-bikes/1", covell, null))
+    }
+
+    @Test fun `a return needs a dock count to be the other station`() {
+        val ret = BikeShareTripWatch.watchOf(TransitNavState(trip, 1))!!
+        val noCount = station("6", "No count", downtown, 3, null)
+        val counted = station("7", "Counted", LatLng(38.5450, -121.7400), 3, 5)
+        assertEquals("Counted", BikeShareTripWatch.alternative(listOf(noCount, counted), ret, "test-bikes/2", downtown, covell)?.name)
+        assertNull(BikeShareTripWatch.alternative(listOf(noCount), ret, "test-bikes/2", downtown, covell))
+    }
+
+    @Test fun `a pickup splice walks to the new station and rides from it`() {
+        val st = station("2", "Close", near, 6, 4)
+        val walk = route(listOf(start, near), 300.0)
+        val bike = route(listOf(near, downtown), 900.0)
+        val t = BikeShareTripWatch.splicePickup(trip.copy(arrivalText = "5:00 PM", arrivalEpochSec = 100L), 1, start, st, walk, bike, durText)!!
+        assertEquals(near, t.steps[0].walkTo)
+        assertEquals(listOf(start, near), t.steps[0].path)
+        assertEquals("5 min", t.steps[0].durationText)
+        assertEquals("Close", t.steps[1].boardStop?.name)
+        assertEquals("Downtown", t.steps[1].alightStop?.name)
+        assertEquals("15 min", t.steps[1].durationText)
+        assertEquals(walkOut, t.steps[2])
+        // Only a walk follows, so the old arrival is no longer known.
+        assertNull(t.arrivalText)
+    }
+
+    @Test fun `a router that does not answer leaves the leg without a path`() {
+        val st = station("2", "Close", near, 6, 4)
+        val t = BikeShareTripWatch.splicePickup(trip, 1, start, st, null, null, durText)!!
+        assertNull(t.steps[0].path)
+        assertNull(t.steps[1].path)
+        assertTrue(t.steps[1].durationText!!.endsWith("min"))
+    }
+
+    @Test fun `a return splice rides to the new station and walks on from it`() {
+        val st = station("7", "Counted", near, 3, 5)
+        val t = BikeShareTripWatch.spliceReturn(trip, 1, covell, st, route(listOf(covell, near), 120.0), route(listOf(near, end), 600.0), durText)!!
+        assertEquals(3, t.steps.size)
+        assertEquals("Counted", t.steps[1].alightStop?.name)
+        assertEquals("Covell Park", t.steps[1].boardStop?.name)
+        assertEquals(near, t.steps[2].walkFrom)
+        assertEquals(end, t.steps[2].walkTo)
+        assertEquals("10 min", t.steps[2].durationText)
+    }
+
+    @Test fun `a return splice adds a walk where the ride was last, and keeps a train's arrival`() {
+        val train = TransitStep(TransitMode.TRAIN, line = TransitLine("Capitol"), boardStop = TransitStopTime("Davis", location = downtown), alightStop = TransitStopTime("Sacramento"))
+        val st = station("7", "Counted", near, 3, 5)
+        val withTrain = TransitItinerary(arrivalText = "6:00 PM", steps = listOf(walkIn, ride, train))
+        val t = BikeShareTripWatch.spliceReturn(withTrain, 1, covell, st, null, null, durText)!!
+        assertEquals(4, t.steps.size)
+        assertEquals(TransitMode.WALK, t.steps[2].mode)
+        assertEquals(downtown, t.steps[2].walkTo)
+        assertEquals("6:00 PM", t.arrivalText)
+    }
+
+    @Test fun `a re-plan is taken only off the empty station and within reach`() {
+        fun plan(name: String, at: LatLng) = TransitItinerary(steps = listOf(walkIn, ride.copy(boardStop = TransitStopTime(name, location = at)), walkOut))
+        assertNull(BikeShareTripWatch.acceptReplan(listOf(plan("covell park", covell)), "Covell Park", start, covell))
+        assertNull(BikeShareTripWatch.acceptReplan(listOf(plan("Far", LatLng(38.5600, -121.7700))), "Covell Park", start, covell))
+        val ok = plan("Close", LatLng(38.5480, -121.7420))
+        assertEquals(ok, BikeShareTripWatch.acceptReplan(listOf(plan("Covell Park", covell), ok), "Covell Park", start, covell))
+    }
+
+    @Test fun `a pickup station near the rider counts even when far from the empty one`() {
+        val pickup = BikeShareTripWatch.watchOf(TransitNavState(trip, 0))!!
+        val byRider = station("8", "By the rider", LatLng(38.5460, -121.7410), 6, 4)
+        assertEquals("By the rider", BikeShareTripWatch.alternative(listOf(byRider), pickup, "test-bikes/1", covell, start)?.name)
+        assertNull(BikeShareTripWatch.alternative(listOf(byRider), pickup, "test-bikes/1", covell, null))
+    }
+
+    @Test fun `an empty pickup is planned again first and the offer starts the new trip`() = runBlocking {
+        val seen = Seen()
+        val again = TransitItinerary(steps = listOf(walkIn.copy(walkTo = near), ride.copy(boardStop = TransitStopTime("Close", location = near)), walkOut))
+        val w = watch(seen, { listOf(station("1", "Covell Park", covell, 0, 4), station("2", "Close", near, 6, 4)) }, replan = listOf(again))
+        w.check(BikeShareTripWatch.watchOf(TransitNavState(trip, 0))!!)
+        val a = w.alert!!
+        assertEquals(1, seen.replans)
+        assertEquals(0, seen.routes)
+        assertEquals("Close", a.altName)
+        assertEquals(6, a.altCount)
+        assertEquals(again, a.offer?.itinerary)
+        assertEquals(0, a.offer?.stepIndex)
+        assertTrue(a.offer?.base === trip)
+    }
+
+    @Test fun `a re-plan with nothing to take falls back to a splice`() = runBlocking {
+        val seen = Seen()
+        val w = watch(seen, { listOf(station("1", "Covell Park", covell, 0, 4), station("2", "Close", near, 6, 4)) })
+        w.check(BikeShareTripWatch.watchOf(TransitNavState(trip, 0))!!)
+        val a = w.alert!!
+        assertEquals(1, seen.replans)
+        assertEquals(2, seen.routes)
+        assertEquals("Close", a.offer?.itinerary?.steps?.get(1)?.boardStop?.name)
+        assertEquals(0, a.offer?.stepIndex)
+    }
+
+    @Test fun `a few bikes left are spliced without a re-plan`() = runBlocking {
+        val seen = Seen()
+        val w = watch(seen, { listOf(station("1", "Covell Park", covell, 2, 4), station("2", "Close", near, 6, 4)) })
+        w.check(BikeShareTripWatch.watchOf(TransitNavState(trip, 0))!!)
+        assertEquals(BikeLevel.FEW, w.alert?.level)
+        assertEquals(0, seen.replans)
+        assertTrue(w.alert?.offer != null)
+    }
+
+    @Test fun `a full return offers a splice from the ride`() = runBlocking {
+        val seen = Seen()
+        val w = watch(seen, { listOf(station("2", "Downtown", downtown, 9, 0), station("7", "Counted", LatLng(38.5450, -121.7400), 3, 5)) }, here = covell)
+        w.check(BikeShareTripWatch.watchOf(TransitNavState(trip, 1))!!)
+        val a = w.alert!!
+        assertEquals(BikeEnd.RETURN, a.end)
+        assertEquals("Counted", a.altName)
+        assertEquals(1, a.offer?.stepIndex)
+        assertEquals("Counted", a.offer?.itinerary?.steps?.get(1)?.alightStop?.name)
+        assertEquals(0, seen.replans)
+    }
+
+    @Test fun `with no other station the alert offers nothing`() = runBlocking {
+        val seen = Seen()
+        val w = watch(seen, { listOf(station("1", "Covell Park", covell, 0, 4)) })
+        w.check(BikeShareTripWatch.watchOf(TransitNavState(trip, 0))!!)
+        assertEquals(BikeLevel.OUT, w.alert?.level)
+        assertNull(w.alert?.altName)
+        assertNull(w.alert?.offer)
+    }
+
+    @Test fun `a phone far from the trip is not taken for the rider`() = runBlocking {
+        val seen = Seen()
+        var box: DoubleArray? = null
+        val w = BikeShareTripWatch(
+            scope = CoroutineScope(EmptyCoroutineContext), nav = emptyFlow(), http = OkHttpClient(),
+            hereOf = { LatLng(38.5816, -121.4944) }, canAsk = { true }, onChange = { seen.alerts += it },
+            routeOf = { a, b, _ -> route(listOf(a, b), 600.0) }, onCounts = {},
+            stationsOf = { b, _ -> box = b; listOf(station("1", "Covell Park", covell, 0, 4), station("2", "Close", near, 6, 4)) },
+            replanOf = { _, _, _ -> seen.replans++; emptyList() }, durText = durText, fake = { null },
+        )
+        w.check(BikeShareTripWatch.watchOf(TransitNavState(trip, 0))!!)
+        // The box is the station's alone, nothing is planned from the phone, and the walk starts where it did.
+        assertTrue(box!![3] - box!![1] < 0.05)
+        assertEquals(0, seen.replans)
+        assertEquals(start, w.alert?.offer?.itinerary?.steps?.get(0)?.walkFrom)
+        assertTrue(w.alert!!.altDistanceM!! < 200.0)
     }
 }

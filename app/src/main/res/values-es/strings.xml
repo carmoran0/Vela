@@ -478,6 +478,11 @@
     <string name="transit_bike_no_bikes">No quedan bicis en %1$s.</string>
     <string name="transit_bike_no_docks">No quedan anclajes libres en %1$s.</string>
     <string name="transit_bike_keep">Mantener</string>
+    <string name="transit_bike_switch">Cambiar</string>
+    <string name="transit_bike_alt">%1$s, a %2$s: %3$s</string>
+    <string name="transit_bike_alt_plain">%1$s, a %2$s</string>
+    <string name="transit_bike_no_alt">Ninguna otra estación cerca tiene.</string>
+    <string name="transit_bike_spoken_alt">Hay en %1$s.</string>
     <plurals name="transit_bike_few_bikes">
         <item quantity="one">Solo queda %1$d bici en %2$s.</item>
         <item quantity="other">Solo quedan %1$d bicis en %2$s.</item>

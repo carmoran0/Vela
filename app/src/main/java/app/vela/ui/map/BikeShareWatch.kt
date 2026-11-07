@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.runtime.mutableStateOf
 import app.vela.R
 import app.vela.core.model.TransitItinerary
+import app.vela.ui.formatDistance
 
 /** Which end of a bike-share leg is watched: where the bike is taken, or where it goes back. */
 enum class BikeEnd { PICKUP, RETURN }
@@ -51,6 +52,23 @@ object BikeShareWatch {
         else -> c.resources.getQuantityString(R.plurals.transit_bike_few_docks, a.count, a.count, a.station)
     }
 
-    /** What the voice says once. */
-    fun spoken(c: Context, a: BikeShareAlert): String = headline(c, a)
+    /** The second line: the other station, or that there is none. Null for a low count with no
+     *  other station, where the first line says it all. */
+    fun altLine(c: Context, a: BikeShareAlert): String? {
+        val name = a.altName
+        val d = a.altDistanceM
+        if (name == null || d == null) return if (a.level == BikeLevel.OUT) c.getString(R.string.transit_bike_no_alt) else null
+        val n = a.altCount ?: return c.getString(R.string.transit_bike_alt_plain, name, formatDistance(d))
+        val count = c.resources.getQuantityString(
+            if (a.end == BikeEnd.PICKUP) R.plurals.place_bike_share_bikes else R.plurals.place_bike_share_docks, n, n,
+        )
+        return c.getString(R.string.transit_bike_alt, name, formatDistance(d), count)
+    }
+
+    /** The notification's heads-up: both lines. */
+    fun text(c: Context, a: BikeShareAlert): String = listOfNotNull(headline(c, a), altLine(c, a)).joinToString(" ")
+
+    /** What the voice says once: the first line and where there are some. */
+    fun spoken(c: Context, a: BikeShareAlert): String =
+        listOfNotNull(headline(c, a), a.altName?.let { c.getString(R.string.transit_bike_spoken_alt, it) }).joinToString(" ")
 }

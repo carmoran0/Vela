@@ -928,6 +928,11 @@
     <string name="transit_bike_no_bikes">No bikes left at %1$s.</string> <!-- format -->
     <string name="transit_bike_no_docks">No free docks at %1$s.</string> <!-- format -->
     <string name="transit_bike_keep">Keep</string>
+    <string name="transit_bike_switch">Switch</string>
+    <string name="transit_bike_alt">%1$s, %2$s away: %3$s</string> <!-- format -->
+    <string name="transit_bike_alt_plain">%1$s, %2$s away</string> <!-- format -->
+    <string name="transit_bike_no_alt">No other station nearby has any.</string>
+    <string name="transit_bike_spoken_alt">There are some at %1$s.</string> <!-- format -->
     <plurals name="transit_bike_few_bikes">
         <item quantity="one">Only %1$d bike left at %2$s.</item>
         <item quantity="other">Only %1$d bikes left at %2$s.</item>

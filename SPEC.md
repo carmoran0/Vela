@@ -5245,6 +5245,30 @@ is on screen (`nonTransitRouteUp` in `MapSurface`): orange and red lines read as
   the threshold drops it. Keep drops an alert for good; a low count that then runs out raises a
   new one. `adb shell setprop debug.vela.tune.bikeShareFake <n>` makes the watched station read
   as n bikes and n docks, for testing without a ride (`AppTune.local`, adb only).
+- An alert offers another station (`alternative`): the same provider's, renting for a pickup,
+  returning with a dock count for a return, within 800 m of the watched station or, for a pickup,
+  of the rider. The nearest with more than two comes first (to the rider for a pickup, to the
+  full station for a return), else the nearest with any. The card names it with its distance
+  from the station it replaces and its count; with none it says no other station nearby has any.
+  The phone counts as the rider only within 3 km of the watched station (`RIDER_MAX_M`); a trip
+  planned from somewhere else uses the leg's own start, and its pickup is not planned again.
+  Switch, in
+  the sheet or on the notification (`TransitGuide.onSwitch`), gives guidance the offered trip and
+  says its leg; Keep leaves the trip as it is. An offer built for an itinerary guidance has left
+  does nothing.
+- An empty pickup is planned again first: `planBikeShare` from the rider to the trip's end on the
+  trip's groups, once per alert. The first trip whose first pickup is another station within
+  reach (`acceptReplan`) is offered whole, from its first leg. The planner skips stations with no
+  bike and times what follows, a train after the bike included; a local splice would keep a
+  train the rider no longer catches. Otherwise the trip is spliced: a low pickup always (the
+  planner takes a station with one bike and would pick it again), and a return always (the
+  planner cannot start from a rented bike). `splicePickup` sends the walk before the bike leg
+  from the rider to the new station and starts the ride there; `spliceReturn` ends the ride at the
+  new station and starts the next walk there, or adds one to the old return when a ride follows.
+  The new legs take their paths and times from the walk and bike routers
+  (`dataSource.directions`), else a straight line at 1.3 m/s on foot and 4 m/s on the bike. They
+  lose their clock times, and so does the trip's arrival when only walks follow; behind a timed
+  ride it is that ride's arrival and stays.
 - MOTIS takes a bike only from a station that is renting and has one of the asked type, and
   returns it only to a station that is returning and has a free dock for that type, or a free-dock
   total where the station declares a capacity (`src/gbfs/osr_mapping.cc`). Where a feed gives no

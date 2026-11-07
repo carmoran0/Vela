@@ -2489,29 +2489,33 @@ fun TransitNavSheet(
                 Column(
                     Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(SheetPalette.row(dark)).padding(14.dp),
                 ) { TransitStepRow(step, ink, dim, onWalkDirections) }
-                // A watched bike-share station that ran out or is running low (SPEC 8, Bike share
-                // in directions), from the holder: MapScreen passes nothing new.
-                app.vela.ui.map.BikeShareWatch.alert.value?.let { a ->
-                    Spacer(Modifier.height(8.dp))
-                    BikeShareAlertCard(a, ink, dim, dark)
-                }
             } else {
                 Text(itin.arrivalText?.let { stringResource(R.string.place_arrive_approx, it) } ?: "", style = MaterialTheme.typography.bodyLarge, color = ink)
             }
-            Spacer(Modifier.height(16.dp))
+            // A watched bike-share station that ran out or is running low (SPEC 8, Bike share in
+            // directions), from the holder: MapScreen passes nothing new.
+            val bikeAlert = app.vela.ui.map.BikeShareWatch.alert.value?.takeIf { step != null && !nav.arrived }
             // Remaining legs as a compact timeline.
             val remaining = itin.steps.drop(nav.stepIndex + 1)
-            if (remaining.isNotEmpty()) {
-                Text(stringResource(R.string.transit_nav_next), style = MaterialTheme.typography.labelMedium, color = dim)
-                Spacer(Modifier.height(6.dp))
-                // The list takes all the room above the buttons and scrolls inside it. It used to
-                // share that room with a spacer, and a short list left the buttons floating on the
-                // one card whose list was short (issue #831).
-                Column(
-                    Modifier.weight(1f).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) { remaining.forEach { TransitStepRow(it, ink, dim) } }
+            if (remaining.isNotEmpty() || bikeAlert != null) {
+                // The alert and the list take all the room above the buttons and scroll inside it,
+                // so a tall alert never pushes the buttons off the sheet. The list used to share
+                // that room with a spacer, and a short list left the buttons floating on the one
+                // card whose list was short (issue #831).
+                Column(Modifier.weight(1f).verticalScroll(rememberScrollState())) {
+                    bikeAlert?.let { a ->
+                        Spacer(Modifier.height(8.dp))
+                        BikeShareAlertCard(a, ink, dim, dark)
+                    }
+                    Spacer(Modifier.height(16.dp))
+                    if (remaining.isNotEmpty()) {
+                        Text(stringResource(R.string.transit_nav_next), style = MaterialTheme.typography.labelMedium, color = dim)
+                        Spacer(Modifier.height(6.dp))
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) { remaining.forEach { TransitStepRow(it, ink, dim) } }
+                    }
+                }
             } else {
+                Spacer(Modifier.height(16.dp))
                 Spacer(Modifier.weight(1f))
             }
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -3355,12 +3359,16 @@ internal fun BikeShareTripsChip() {
     )
 }
 
-/** A guided bike-share station's alert: at none a card in red with Keep, at a few a line in amber. */
+/** A guided bike-share station's alert: at none a card with the other station, Switch and Keep;
+ *  at a few a line in amber with Switch when there is another station. */
 @Composable
 private fun BikeShareAlertCard(a: app.vela.ui.map.BikeShareAlert, ink: Color, dim: Color, dark: Boolean) {
     val context = LocalContext.current
     val out = a.level == app.vela.ui.map.BikeLevel.OUT
     val tint = if (out) SheetPalette.TrafficRed else SheetPalette.TrafficAmber
+    val alt = app.vela.ui.map.BikeShareWatch.altLine(context, a)
+    // A D-pad lands on the card's first button when a station runs out (docs/dpad.md).
+    val focus = app.vela.ui.rememberDpadAutoFocus(a.key)
     Column(
         Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).background(SheetPalette.row(dark)).padding(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -3368,25 +3376,42 @@ private fun BikeShareAlertCard(a: app.vela.ui.map.BikeShareAlert, ink: Color, di
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Sym.DirectionsBike, contentDescription = null, tint = tint, modifier = Modifier.size(18.dp))
             Spacer(Modifier.width(8.dp))
-            Text(
-                app.vela.ui.map.BikeShareWatch.headline(context, a),
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (out) FontWeight.SemiBold else FontWeight.Normal,
-                color = if (out) ink else tint,
-                modifier = Modifier.weight(1f),
-            )
+            Column(Modifier.weight(1f)) {
+                Text(
+                    app.vela.ui.map.BikeShareWatch.headline(context, a),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = if (out) FontWeight.SemiBold else FontWeight.Normal,
+                    color = if (out) ink else tint,
+                )
+                if (alt != null) Text(alt, style = MaterialTheme.typography.bodySmall, color = dim)
+            }
             if (!out) {
-                TextButton(onClick = { app.vela.ui.map.BikeShareWatch.onKeep?.invoke() }, modifier = Modifier.dpadHighlight(CircleShape)) {
-                    Text(stringResource(R.string.transit_bike_keep))
+                if (a.offer != null) {
+                    TextButton(onClick = { app.vela.ui.map.BikeShareWatch.onSwitch?.invoke() }, modifier = Modifier.dpadHighlight(CircleShape)) {
+                        Text(stringResource(R.string.transit_bike_switch))
+                    }
+                } else {
+                    TextButton(onClick = { app.vela.ui.map.BikeShareWatch.onKeep?.invoke() }, modifier = Modifier.dpadHighlight(CircleShape)) {
+                        Text(stringResource(R.string.transit_bike_keep))
+                    }
                 }
             }
         }
         if (out) {
-            FilledTonalButton(
-                onClick = { app.vela.ui.map.BikeShareWatch.onKeep?.invoke() },
-                shape = CircleShape,
-                modifier = Modifier.dpadHighlight(CircleShape),
-            ) { Text(stringResource(R.string.transit_bike_keep)) }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (a.offer != null) {
+                    Button(
+                        onClick = { app.vela.ui.map.BikeShareWatch.onSwitch?.invoke() },
+                        shape = CircleShape,
+                        modifier = Modifier.focusRequester(focus).dpadHighlight(CircleShape),
+                    ) { Text(stringResource(R.string.transit_bike_switch)) }
+                }
+                FilledTonalButton(
+                    onClick = { app.vela.ui.map.BikeShareWatch.onKeep?.invoke() },
+                    shape = CircleShape,
+                    modifier = (if (a.offer == null) Modifier.focusRequester(focus) else Modifier).dpadHighlight(CircleShape),
+                ) { Text(stringResource(R.string.transit_bike_keep)) }
+            }
         }
     }
 }

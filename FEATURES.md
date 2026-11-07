@@ -202,7 +202,7 @@ What Vela Maps does today, one line per feature. How each one works is in [SPEC.
   with transit, from the open Transitous planner, with the free bikes at the pickup and the free
   docks at the return. The guide names both stations, and the bike leg expands to turn-by-turn cycling steps.
 - On a bike-share trip the guide checks the pickup on the walk to it and the return on the ride,
-  every minute, and says when a station runs out of bikes or docks.
+  every minute, says when a station runs out of bikes or docks, and offers the nearest other one.
 
 ## Cameras and road alerts
 

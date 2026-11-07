@@ -25,7 +25,8 @@ import kotlinx.coroutines.flow.onEach
 /**
  * What the transit guidance notification shows (issue #880), written by `MapViewModel` as the
  * legs advance and the rider moves; [TransitGuideService] mirrors it. [alertKey] is set once per
- * leg when the next stop is the rider's, and the service pops [alert] once for it.
+ * leg when the next stop is the rider's, or per bike-share station that runs out, and the service
+ * pops [alert] once for it. [action] labels a button on both cards that runs [onSwitch].
  */
 object TransitGuide {
     data class Notice(
@@ -34,12 +35,17 @@ object TransitGuide {
         val alert: String? = null,
         val alertKey: String? = null,
         val arrived: Boolean = false,
+        val action: String? = null,
     )
 
     val notice = MutableStateFlow<Notice?>(null)
 
     /** The notification's End button: `MapViewModel` ends the guidance. */
     @Volatile var onEnd: (() -> Unit)? = null
+
+    /** The notification's Switch button on a bike-share alert: `MapViewModel` takes the other
+     *  station's trip. */
+    @Volatile var onSwitch: (() -> Unit)? = null
 
     /** Guidance ended in the app: the service stops, and an arrival card left in the shade goes. */
     fun end(context: Context) {
@@ -76,6 +82,11 @@ class TransitGuideService : Service() {
             teardown()
             return START_NOT_STICKY
         }
+        if (intent?.action == ACTION_SWITCH) {
+            TransitGuide.onSwitch?.invoke()
+            runCatching { nm().cancel(ALERT_ID) }
+            return START_STICKY
+        }
         NavigationService.ensureNavChannels(this)
         val first = TransitGuide.notice.value ?: run { stopSelf(); return START_NOT_STICKY }
         try {
@@ -107,7 +118,7 @@ class TransitGuideService : Service() {
                         runCatching { nm().notify(NOTIF_ID, build(n)) }
                         if (n.alertKey != null && n.alertKey != alerted && n.alert != null) {
                             alerted = n.alertKey
-                            runCatching { nm().notify(ALERT_ID, buildAlert(n.alert)) }
+                            runCatching { nm().notify(ALERT_ID, buildAlert(n.alert, n.action)) }
                         }
                     }
                 }
@@ -137,16 +148,26 @@ class TransitGuideService : Service() {
                 this, 11, Intent(this, TransitGuideService::class.java).setAction(ACTION_END),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            b.setOngoing(true).addAction(0, getString(R.string.navservice_notif_action_end), end)
+            b.setOngoing(true)
+            n.action?.let { b.addAction(0, it, switchIntent()) }
+            b.addAction(0, getString(R.string.navservice_notif_action_end), end)
         }
         return b.build()
     }
 
-    /** The heads-up for "get off at the next stop": the turn channel, silent, gone after a while. */
-    private fun buildAlert(text: String): Notification =
+    private fun switchIntent(): PendingIntent = PendingIntent.getService(
+        this, 13, Intent(this, TransitGuideService::class.java).setAction(ACTION_SWITCH),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
+
+    /** The heads-up for "get off at the next stop" or a bike-share station that ran out: the turn
+     *  channel, silent, gone after a while. [action] adds the Switch button. */
+    private fun buildAlert(text: String, action: String? = null): Notification =
         NotificationCompat.Builder(this, NavigationService.TURN_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_nav)
             .setContentTitle(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+            .apply { action?.let { addAction(0, it, switchIntent()) } }
             .setAutoCancel(true)
             .setTimeoutAfter(ALERT_TIMEOUT_MS)
             .setCategory(NotificationCompat.CATEGORY_NAVIGATION)
@@ -176,6 +197,7 @@ class TransitGuideService : Service() {
 
     companion object {
         private const val ACTION_END = "app.vela.service.TRANSIT_END"
+        private const val ACTION_SWITCH = "app.vela.service.TRANSIT_BIKE_SWITCH"
         // Beside the drive's 42 and 43.
         private const val NOTIF_ID = 44
         private const val ALERT_ID = 45

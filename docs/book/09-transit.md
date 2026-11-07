@@ -336,6 +336,14 @@ station out of service, the guidance sheet shows a card, the voice says it once 
 notification pops a heads-up. At two or fewer the sheet shows a line in amber and nothing is
 said. Keep puts an alert away for good.
 
+The alert names another station of the same system within 800 m that still has bikes or docks,
+the nearest with more than two first, and Switch, in the sheet or on the notification, rewrites
+the trip through it. An empty pickup asks the planner again from where the rider stands: it
+already skips empty stations and times the rest of the trip, a train after the bike included.
+A low pickup, a planner with nothing better, and every return are spliced by hand instead: the
+walk or the ride is sent to the new station by the walk and bike routers, and the next leg
+starts there. The planner cannot start from a bike already rented.
+
 ### Offline copies
 
 - `TransitStopCache` keeps the stops of the 24 most recent areas (`MAX_AREAS`), overwritten by

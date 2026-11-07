@@ -254,6 +254,12 @@ Small items, one pull request each.
 Each of these passed its unit tests and has not been seen or heard where it matters. Take one
 off the list when it has been.
 
+- Bike share in directions, the stations on the way: guidance checks the pickup and the return
+  every minute and offers the nearest other station when one runs out (SPEC 8, Bike share in
+  directions). Tested with the `bikeShareFake` hook only; no station has run out on a real ride.
+  Most feeds on the public instance give no dock counts (none for Lyon, Paris, Bordeaux, Berlin,
+  Montreal or Brussels on 2026-11-04), so the return check works only where one does. A return
+  spliced before a train keeps the train's times, which the longer ride may miss.
 - Data job fixes: the camera bake asks for CSV and tries again, the maxspeed bake skips a
   region with no tagged roads, a failed velamaps.org deploy no longer stops GitHub Pages, and
   the baseline profile run warns instead of failing when it may not open a pull request. Each
@@ -733,11 +739,6 @@ Found reading everything since 0.4.1912 and not fixed yet.
   still cancel their request for each new view, so while the map follows a moving fix a reply
   slower than the second between views never lands. They can ask through `ViewFetch` as the
   stop icons and bike-share stations do.
-- Bike share in directions, another station on the way. Guidance checks the pickup and the
-  return every minute and says when one runs out (SPEC 8, Bike share in directions). Still to
-  do: offer the nearest other station and rewrite the trip when the rider takes it. Most feeds
-  on the public instance give no dock counts (none for Lyon, Paris, Bordeaux, Berlin, Montreal
-  or Brussels on 2026-11-04), so the return check works only where one does.
 - Bike share on a trip with stops. Such a trip gets no bike-share trip today, only a line saying
   so: the planner's `via` takes up to two transit stop ids and no coordinate. One plan per stretch
   (start to the first stop, then on from each stop at the time the last stretch arrives), joined

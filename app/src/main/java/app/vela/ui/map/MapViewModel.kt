@@ -578,6 +578,7 @@ class MapViewModel @Inject constructor(
             BikeShareWatch.alert.value = a
             if (_state.value.transitNav != null) publishTransitNotice(_state.value.myLocation)
         },
+        routeOf = { a, b, mode -> runCatching { dataSource.directions(a, b, mode).firstOrNull() }.getOrNull() },
     )
     private var bikeShareJob: Job? = null
     /** The last directions' ends and whether it had stops, for [researchBikeShare]. */
@@ -867,6 +868,8 @@ class MapViewModel @Inject constructor(
         bikeShare.bind()
         bikeShareWatch.bind()
         BikeShareWatch.onKeep = { bikeShareWatch.dismiss() }
+        BikeShareWatch.onSwitch = ::switchBikeShare
+        app.vela.service.TransitGuide.onSwitch = { switchBikeShare() }
         // Turning the transit lines on (or off) acts at once, not at the next pan.
         viewModelScope.launch {
             androidx.compose.runtime.snapshotFlow { app.vela.ui.TransitLayer.on.value }.collect {
@@ -7336,6 +7339,19 @@ class MapViewModel @Inject constructor(
         publishTransitNotice(_state.value.myLocation)
     }
 
+    /** Switch on a bike-share alert: guidance takes the trip through the other station, from the
+     *  offer's leg, and says it. An offer made for an itinerary guidance has left does nothing. */
+    private fun switchBikeShare() {
+        val offer = BikeShareWatch.alert.value?.offer ?: return
+        val tn = _state.value.transitNav ?: return
+        if (tn.itinerary !== offer.base || tn.arrived) return
+        transitLegArmed = false
+        BikeShareWatch.alert.value = null
+        _state.update { it.copy(transitNav = TransitNavState(offer.itinerary, offer.stepIndex)) }
+        offer.itinerary.steps.getOrNull(offer.stepIndex)?.let { voice.speak(transitStepSpoken(it), interrupt = true) }
+        publishTransitNotice(_state.value.myLocation)
+    }
+
     fun endTransitNav() {
         _state.update { it.copy(transitNav = null) }
         BikeShareWatch.alert.value = null
@@ -7392,7 +7408,10 @@ class MapViewModel @Inject constructor(
         // A bike-share station that ran out on the way pops up and is said once (SPEC 8, Bike
         // share in directions). A low count stays in the sheet.
         val bike = BikeShareWatch.alert.value?.takeIf { it.level == BikeLevel.OUT }
-        val notice = if (bike == null) leg else leg.copy(alert = BikeShareWatch.headline(appContext, bike), alertKey = bike.key)
+        val notice = if (bike == null) leg else leg.copy(
+            alert = BikeShareWatch.text(appContext, bike), alertKey = bike.key,
+            action = bike.offer?.let { appContext.getString(R.string.transit_bike_switch) },
+        )
         app.vela.service.TransitGuide.notice.value = notice
         if (notice.alert != null && notice.alertKey != transitAlertedKey) {
             transitAlertedKey = notice.alertKey
